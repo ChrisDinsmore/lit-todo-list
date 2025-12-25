@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="./public/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Read Later</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./src/theme.css" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="theme-color" content="#6366f1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <script type="importmap">
+    {
+      "imports": {
+        "lit": "https://esm.run/lit",
+        "yjs": "https://esm.run/yjs",
+        "y-webrtc": "https://esm.run/y-webrtc",
+        "y-indexeddb": "https://esm.run/y-indexeddb",
+        "idb-keyval": "https://esm.run/idb-keyval",
+        "y-protocols/": "https://esm.run/y-protocols/",
+        "lib0/": "https://esm.run/lib0/"
+      }
+    }
+  </script>
+  <script type="module" src="./src/read-later-app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('Service Worker registered', reg))
+          .catch(err => console.log('Service Worker registration failed', err));
+      });
+    }
+  </script>
+</head>
+
+<body>
+  <read-later-app></read-later-app>
+</body>
+
+</html>

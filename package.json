@@ -1,0 +1,11 @@
+{
+  "name": "lit-todo-list",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve ."
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
