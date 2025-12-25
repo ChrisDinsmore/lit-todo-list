@@ -6,6 +6,11 @@
     "display": "standalone",
     "background_color": "#1a1a2e",
     "theme_color": "#6366f1",
+    "id": "/",
+    "categories": [
+        "productivity",
+        "utilities"
+    ],
     "icons": [
         {
             "src": "icons/icon-192.png",

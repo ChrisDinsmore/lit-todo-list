@@ -14,7 +14,8 @@ export class ReadLaterApp extends LitElement {
     _synced: { state: true },
     _currentView: { state: true }, // 'list' or 'reader'
     _roomId: { state: true },
-    _showSettings: { state: true }
+    _showSettings: { state: true },
+    _installPrompt: { state: true }
   };
 
   constructor() {
@@ -25,13 +26,17 @@ export class ReadLaterApp extends LitElement {
     this._currentView = 'list';
     this._activeArticleId = null;
     this._showSettings = false;
+    this._installPrompt = null;
 
     // Load or generate Room ID
     const storedRoomId = localStorage.getItem('read-later-room-id');
     if (storedRoomId) {
       this._roomId = storedRoomId;
     } else {
-      this._roomId = crypto.randomUUID();
+      // Fallback for non-secure contexts (HTTP) where crypto.randomUUID is invalid
+      this._roomId = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : 'user-' + Math.random().toString(36).substring(2, 15);
       localStorage.setItem('read-later-room-id', this._roomId);
     }
 
@@ -41,12 +46,18 @@ export class ReadLaterApp extends LitElement {
     this.yarray = this.ydoc.getArray('links');
     this.yarray.observe(() => {
       this._links = this.yarray.toArray();
-      this._synced = true;
       this.requestUpdate();
     });
 
     this._links = this.yarray.toArray();
     this._connectProvider();
+
+    // PWA Install Prompt Listener
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      this._installPrompt = e;
+      this.requestUpdate();
+    });
   }
 
   _connectProvider() {
@@ -56,9 +67,20 @@ export class ReadLaterApp extends LitElement {
     // Prefix to ensure namespace unique to this app even if user enters a simple string
     const roomName = 'read-later-v1-' + this._roomId;
     console.log('Connecting to room:', roomName);
-    this.provider = new WebrtcProvider(roomName, this.ydoc, {
-      signaling: ['wss://signaling.yjs.dev']
+    this.provider = new WebrtcProvider(roomName, this.ydoc);
+
+    this.provider.on('status', ({ status }) => {
+      this._synced = status === 'connected';
+      this.requestUpdate();
     });
+  }
+
+  async _installPwa() {
+    if (!this._installPrompt) return;
+    this._installPrompt.prompt();
+    const { outcome } = await this._installPrompt.userChoice;
+    console.log(`User response to the install prompt: ${outcome}`);
+    this._installPrompt = null;
   }
 
   _updateRoomId(newId) {
@@ -422,6 +444,15 @@ export class ReadLaterApp extends LitElement {
     return html`
       <div class="container">
         <div class="header-actions">
+          ${this._installPrompt ? html`
+            <button class="settings-btn" @click=${() => this._installPwa()} title="Install App" style="color: var(--primary-color);">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+            </button>
+          ` : ''}
           <div class="sync-indicator">
             <div class="sync-dot" style="background: ${this._synced ? '#10b981' : '#f59e0b'}; box-shadow: 0 0 10px ${this._synced ? '#10b981' : '#f59e0b'};"></div>
             <span>${this._synced ? 'P2P Live' : 'Connecting...'}</span>
