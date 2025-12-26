@@ -12,174 +12,157 @@ export class ReaderView extends LitElement {
     this.article = null;
     this.isListening = false;
     this.utterance = null;
-
-    // Background audio hack
-    this.audioHack = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABBGZGF0AgAAAA==');
-    this.audioHack.loop = true;
   }
 
   static styles = [
     sharedStyles,
     css`
-    :host {
-      display: block;
-      animation: fadeIn 0.3s ease-out;
-    }
+      :host {
+        display: block;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
 
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
+      .reader-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
 
-    .top-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 2rem;
-      padding-bottom: 1rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
+      .back-btn {
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 1rem;
+        padding: 0.5rem;
+        border-radius: 8px;
+        transition: var(--transition-fast);
+      }
 
-    .back-btn {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      background: transparent;
-      border: none;
-      color: var(--text-secondary);
-      cursor: pointer;
-      font-weight: 500;
-      transition: var(--transition-fast);
-      padding: 0.5rem 1rem;
-      border-radius: 12px;
-    }
+      .back-btn:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: white;
+      }
 
-    .back-btn:hover {
-      background: rgba(255, 255, 255, 0.05);
-      color: white;
-    }
+      .actions {
+        display: flex;
+        gap: 0.5rem;
+      }
 
-    .controls {
-      display: flex;
-      gap: 0.75rem;
-    }
+      .action-btn {
+        background: rgba(255, 255, 255, 0.1);
+        border: none;
+        color: white;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: var(--transition-fast);
+      }
 
-    .article-container {
-      max-width: 800px;
-      margin: 0 auto;
-      line-height: 1.8;
-      font-family: 'Inter', serif;
-      color: var(--text-main);
-    }
+      .action-btn:hover {
+        background: var(--primary-color);
+        transform: translateY(-2px);
+      }
 
-    h1 {
-      font-size: 2.5rem;
-      line-height: 1.2;
-      margin-bottom: 1rem;
-      color: white;
-    }
+      .action-btn.active {
+        background: var(--primary-color);
+        box-shadow: 0 0 15px var(--primary-color);
+        animation: pulse 2s infinite;
+      }
 
-    .meta {
-      font-size: 0.9rem;
-      color: var(--text-muted);
-      margin-bottom: 2.5rem;
-      display: flex;
-      gap: 1rem;
-    }
+      .article-content {
+        flex: 1;
+        overflow-y: auto;
+        padding-right: 0.5rem;
+        line-height: 1.8;
+        font-size: 1.1rem;
+        color: var(--text-primary);
+      }
 
-    .content {
-      font-size: 1.15rem;
-      white-space: pre-wrap;
-    }
+      .article-content h1 {
+        font-size: 2rem;
+        margin-bottom: 1rem;
+        line-height: 1.3;
+      }
 
-    .audio-btn {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.6rem 1.2rem;
-      border-radius: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    }
+      .article-meta {
+        color: var(--text-muted);
+        font-size: 0.9rem;
+        margin-bottom: 2rem;
+        display: flex;
+        gap: 1rem;
+      }
 
-    .listen {
-      background: var(--primary-color);
-      color: white;
-      border: none;
-    }
+      .text-content {
+        white-space: pre-wrap;
+      }
 
-    .listen:hover {
-      box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
-      transform: translateY(-1px);
-    }
-
-    .stop {
-      background: rgba(239, 68, 68, 0.2);
-      color: #ef4444;
-      border: 1px solid rgba(239, 68, 68, 0.3);
-    }
-
-    .stop:hover {
-      background: rgba(239, 68, 68, 0.3);
-    }
-
-    svg {
-      width: 20px;
-      height: 20px;
-    }
-  `];
+      @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+        70% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+      }
+    `
+  ];
 
   _handleBack() {
-    console.log('reader-view: Going back to list');
-    this._stopListening();
+    this._toggleSpeech(true); // Stop speech if running
     this.dispatchEvent(new CustomEvent('close-reader', {
       bubbles: true,
       composed: true
     }));
   }
 
-  _startListening() {
-    if (!this.article) return;
-
-    this.isListening = true;
-
-    // Preparation for background playback on Android
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: this.article.title || 'Article',
-        artist: new URL(this.article.url).hostname,
-        album: 'Read Later'
-      });
-
-      navigator.mediaSession.setActionHandler('pause', () => this._stopListening());
-      navigator.mediaSession.setActionHandler('stop', () => this._stopListening());
-    }
-
-    this.utterance = new SpeechSynthesisUtterance(this.article.content || this.article.title);
-    this.utterance.onend = () => {
+  _toggleSpeech(forceStop = false) {
+    if (this.isListening || forceStop) {
+      window.speechSynthesis.cancel();
       this.isListening = false;
-      this.audioHack.pause(); // Pause audio hack when speech ends
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    } else {
+      this.utterance = new SpeechSynthesisUtterance(this.article.content || this.article.title);
+
+      // Setup Media Session Metadata
       if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'none';
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: this.article.title,
+          artist: 'Read Later',
+          album: 'Article',
+          artwork: [{ src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }]
+        });
+        navigator.mediaSession.playbackState = 'playing';
+        navigator.mediaSession.setActionHandler('play', () => { });
+        navigator.mediaSession.setActionHandler('pause', () => this._toggleSpeech());
+        navigator.mediaSession.setActionHandler('stop', () => this._toggleSpeech());
       }
-    };
 
-    window.speechSynthesis.cancel(); // Clear any pending speech
-    this.audioHack.play().catch(e => console.log('Audio hack failed to play', e)); // Play audio hack when speech starts
-    window.speechSynthesis.speak(this.utterance);
+      this.utterance.onend = () => {
+        this.isListening = false;
+        this.requestUpdate();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
+      };
 
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = 'playing';
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(this.utterance);
+      this.isListening = true;
     }
+    this.requestUpdate();
   }
 
-  _stopListening() {
-    window.speechSynthesis.cancel();
-    this.isListening = false;
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = 'none';
-    }
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._toggleSpeech(true);
   }
 
   disconnectedCallback() {

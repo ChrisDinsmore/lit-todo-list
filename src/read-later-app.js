@@ -401,35 +401,98 @@ export class ReadLaterApp extends LitElement {
   `];
 
   async _fetchMetadata(url) {
+    // Try our backend scraping endpoint first
+    const scrapeEndpoint = 'https://websocket-relay.c-dinsmore.workers.dev/scrape';
+
     try {
-      // Using a public CORS proxy to fetch content client-side
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-      const response = await fetch(proxyUrl);
-      const data = await response.json();
-      const html = data.contents;
+      console.log('Fetching article via backend scraper...');
+      const response = await fetch(scrapeEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url }),
+        signal: AbortSignal.timeout(15000) // 15 second timeout
+      });
 
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-
-      const title = doc.querySelector('title')?.innerText ||
-        doc.querySelector('meta[property="og:title"]')?.content ||
-        url;
-
-      const description = doc.querySelector('meta[name="description"]')?.content ||
-        doc.querySelector('meta[property="og:description"]')?.content ||
-        'No summary available.';
-
-      // Basic content extraction (filtering out small navigational text)
-      const paragraphs = Array.from(doc.querySelectorAll('p, article, h1, h2, h3, h4, h5, h6'))
-        .filter(el => el.innerText.length > 50) // Filter out menu items/noise
-        .map(p => p.innerText);
-
-      const content = paragraphs.join('\n\n').substring(0, 100000) || 'Could not parse article content.';
-
-      return { title, summary: description.substring(0, 300) + '...', content };
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✓ Successfully fetched using backend scraper');
+        return data;
+      } else {
+        const error = await response.json();
+        console.warn('Backend scraper failed:', error);
+      }
     } catch (e) {
-      console.error('Failed to fetch metadata:', e);
-      return { title: url, summary: 'Offline or failed to fetch info.', content: '' };
+      console.warn('Backend scraper error:', e.message);
     }
+
+    // Fallback to CORS proxies if backend fails
+    console.log('Falling back to CORS proxies...');
+    const proxies = [
+      {
+        name: 'AllOrigins',
+        getUrl: (url) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+        parseResponse: async (response) => {
+          const data = await response.json();
+          return data.contents;
+        }
+      },
+      {
+        name: 'ThingProxy',
+        getUrl: (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
+        parseResponse: async (response) => await response.text()
+      },
+      {
+        name: 'CORS.SH',
+        getUrl: (url) => `https://cors.sh/${url}`,
+        parseResponse: async (response) => await response.text()
+      }
+    ];
+
+    // Try each proxy until one succeeds
+    for (const proxy of proxies) {
+      try {
+        console.log(`Trying ${proxy.name} proxy...`);
+        const proxyUrl = proxy.getUrl(url);
+        const response = await fetch(proxyUrl, {
+          signal: AbortSignal.timeout(10000) // 10 second timeout
+        });
+
+        if (!response.ok) {
+          console.warn(`${proxy.name} returned ${response.status}`);
+          continue;
+        }
+
+        const html = await proxy.parseResponse(response);
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+
+        const title = doc.querySelector('title')?.innerText ||
+          doc.querySelector('meta[property="og:title"]')?.content ||
+          url;
+
+        const description = doc.querySelector('meta[name="description"]')?.content ||
+          doc.querySelector('meta[property="og:description"]')?.content ||
+          'No summary available.';
+
+        // Basic content extraction (filtering out small navigational text)
+        const paragraphs = Array.from(doc.querySelectorAll('p, article, h1, h2, h3, h4, h5, h6'))
+          .filter(el => el.innerText.length > 50) // Filter out menu items/noise
+          .map(p => p.innerText);
+
+        const content = paragraphs.join('\n\n').substring(0, 100000) || 'Could not parse article content.';
+
+        console.log(`✓ Successfully fetched using ${proxy.name}`);
+        return { title, summary: description.substring(0, 300) + '...', content };
+      } catch (e) {
+        console.warn(`${proxy.name} failed:`, e.message);
+        // Continue to next proxy
+      }
+    }
+
+    // All methods failed
+    console.error('All scraping methods failed for:', url);
+    return { title: url, summary: 'Failed to fetch article. All methods unavailable.', content: '' };
   }
 
   async _addLink(e) {
