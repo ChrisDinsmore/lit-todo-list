@@ -15,7 +15,8 @@ export class ReadLaterApp extends LitElement {
     _currentView: { state: true }, // 'list' or 'reader'
     _roomId: { state: true },
     _showSettings: { state: true },
-    _installPrompt: { state: true }
+    _installPrompt: { state: true },
+    _peerCount: { state: true }
   };
 
   constructor() {
@@ -23,6 +24,7 @@ export class ReadLaterApp extends LitElement {
     this._links = [];
     this._filter = 'all';
     this._synced = false;
+    this._peerCount = 0;
     this._currentView = 'list';
     this._activeArticleId = null;
     this._showSettings = false;
@@ -128,9 +130,31 @@ export class ReadLaterApp extends LitElement {
       password: roomName // Optional: adds a layer of negotiation security
     });
 
+    // Check status immediately and after a short delay
+    const checkStatus = () => {
+      this._synced = this.provider.connected;
+      this.requestUpdate();
+    };
+
+    setTimeout(checkStatus, 500);
+    setTimeout(checkStatus, 2000);
+
     this.provider.on('status', ({ status }) => {
-      console.log('Sync status:', status);
-      this._synced = status === 'connected';
+      console.log('Sync status changed:', status);
+      // y-webrtc often emits status as an object where status.connected might be a thing,
+      // or simply strings like 'connected' or 'disconnected'.
+      this._synced = status === 'connected' || this.provider.connected;
+      this.requestUpdate();
+    });
+
+    // Also listen to peer events to confirm activity
+    this.provider.on('peers', ({ webrtcPeers }) => {
+      this._peerCount = webrtcPeers.length;
+      console.log('Active peers:', this._peerCount);
+      // Even if not "connected" in signaling terms, we might have peers
+      if (this._peerCount > 0) {
+        this._synced = true;
+      }
       this.requestUpdate();
     });
   }
@@ -603,7 +627,7 @@ export class ReadLaterApp extends LitElement {
           ` : ''}
           <div class="sync-indicator">
             <div class="sync-dot" style="background: ${this._synced ? '#10b981' : '#f59e0b'}; box-shadow: 0 0 10px ${this._synced ? '#10b981' : '#f59e0b'};"></div>
-            <span>${this._synced ? 'P2P Live' : 'Connecting...'}</span>
+            <span>${this._synced ? 'P2P Live' : 'Connecting...'} ${this._peerCount > 0 ? html`(${this._peerCount} peer${this._peerCount === 1 ? '' : 's'})` : ''}</span>
           </div>
           <button class="settings-btn" @click=${() => this._showSettings = !this._showSettings} title="Sync Settings">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -640,7 +664,7 @@ export class ReadLaterApp extends LitElement {
           </div>
         ` : ''}
 
-        <h1>Read Later <span class="version-badge">v31</span></h1>
+        <h1>Read Later <span class="version-badge">v34</span></h1>
         
         <link-input @save-link=${(e) => this._addLink(e)}></link-input>
 
