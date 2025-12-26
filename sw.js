@@ -1,16 +1,19 @@
-const CACHE_NAME = 'read-later-v25';
+const CACHE_NAME = 'read-later-v31';
 const ASSETS = [
     './',
     './index.html',
     './src/theme.css',
     './src/read-later-app.js',
     './src/app-styles.js',
+    './src/lib/tts-engine.js',
     './src/components/link-input.js',
     './src/components/link-item.js',
     './src/components/reader-view.js',
     './manifest.webmanifest',
     './icons/icon-192.png',
     './icons/icon-512.png',
+    './lib/espeak-ng/espeakng.worker.js',
+    './lib/espeak-ng/espeakng.worker.data',
     'https://esm.run/lit',
     'https://esm.run/yjs',
     'https://esm.run/y-webrtc',
