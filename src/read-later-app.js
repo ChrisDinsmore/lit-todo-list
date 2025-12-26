@@ -33,10 +33,7 @@ export class ReadLaterApp extends LitElement {
     if (storedRoomId) {
       this._roomId = storedRoomId;
     } else {
-      // Fallback for non-secure contexts (HTTP) where crypto.randomUUID is invalid
-      this._roomId = typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : 'user-' + Math.random().toString(36).substring(2, 15);
+      this._roomId = this._generateId();
       localStorage.setItem('read-later-room-id', this._roomId);
     }
 
@@ -64,12 +61,22 @@ export class ReadLaterApp extends LitElement {
     if (this.provider) {
       this.provider.destroy();
     }
+
     // Prefix to ensure namespace unique to this app even if user enters a simple string
     const roomName = 'read-later-v1-' + this._roomId;
     console.log('Connecting to room:', roomName);
-    this.provider = new WebrtcProvider(roomName, this.ydoc);
+
+    const signalingServers = [
+      'wss://demos.yjs.dev/ws'
+    ];
+
+    this.provider = new WebrtcProvider(roomName, this.ydoc, {
+      signaling: signalingServers,
+      password: roomName // Optional: adds a layer of negotiation security
+    });
 
     this.provider.on('status', ({ status }) => {
+      console.log('Sync status:', status);
       this._synced = status === 'connected';
       this.requestUpdate();
     });
@@ -94,6 +101,13 @@ export class ReadLaterApp extends LitElement {
   _copyRoomId() {
     navigator.clipboard.writeText(this._roomId);
     alert('Sync Key copied to clipboard!');
+  }
+
+  _generateId() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    return 'id-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
   }
 
   static styles = [
@@ -350,7 +364,7 @@ export class ReadLaterApp extends LitElement {
   async _addLink(e) {
     const url = e.detail.url;
     const placeholder = {
-      id: crypto.randomUUID(),
+      id: this._generateId(),
       url,
       read: false,
       timestamp: Date.now(),
