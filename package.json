@@ -1,10 +1,11 @@
 {
   "name": "lit-todo-list",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.25",
   "type": "module",
   "scripts": {
-    "dev": "npx serve ."
+    "dev": "npx serve .",
+    "version-bump": "node scripts/bump-version.js"
   },
   "dependencies": {},
   "devDependencies": {}

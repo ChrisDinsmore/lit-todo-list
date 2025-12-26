@@ -640,7 +640,7 @@ export class ReadLaterApp extends LitElement {
           </div>
         ` : ''}
 
-        <h1>Read Later <span class="version-badge">v23</span></h1>
+        <h1>Read Later <span class="version-badge">v25</span></h1>
         
         <link-input @save-link=${(e) => this._addLink(e)}></link-input>
 

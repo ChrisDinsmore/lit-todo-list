@@ -4,15 +4,20 @@ import { sharedStyles } from '../app-styles.js';
 export class ReaderView extends LitElement {
   static properties = {
     article: { type: Object },
-    isListening: { type: Boolean, state: true }
+    isListening: { type: Boolean, state: true },
+    isPaused: { type: Boolean, state: true }
   };
 
   constructor() {
     super();
     this.article = null;
     this.isListening = false;
+    this.isPaused = false;
     this.utterance = null;
     this.wakeLock = null;
+    this.chunks = [];
+    this.currentChunkIndex = 0;
+    this.silentAudio = null;
   }
 
   static styles = [
@@ -25,7 +30,7 @@ export class ReaderView extends LitElement {
         flex-direction: column;
       }
 
-      .reader-header {
+      .top-bar {
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -53,37 +58,41 @@ export class ReaderView extends LitElement {
         color: white;
       }
 
-      .actions {
+      .controls {
         display: flex;
         gap: 0.5rem;
       }
 
-      .action-btn {
+      .audio-btn {
         background: rgba(255, 255, 255, 0.1);
         border: none;
         color: white;
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
         display: flex;
         align-items: center;
         justify-content: center;
+        gap: 0.5rem;
         cursor: pointer;
         transition: var(--transition-fast);
+        font-weight: 500;
       }
 
-      .action-btn:hover {
+      .audio-btn:hover {
         background: var(--primary-color);
         transform: translateY(-2px);
       }
 
-      .action-btn.active {
-        background: var(--primary-color);
-        box-shadow: 0 0 15px var(--primary-color);
-        animation: pulse 2s infinite;
+      .audio-btn.stop {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
       }
 
-      .article-content {
+      .audio-btn.stop:hover {
+        background: rgba(239, 68, 68, 0.3);
+      }
+
+      .article-container {
         flex: 1;
         overflow-y: auto;
         padding-right: 0.5rem;
@@ -92,21 +101,22 @@ export class ReaderView extends LitElement {
         color: var(--text-primary);
       }
 
-      .article-content h1 {
+      .article-container h1 {
         font-size: 2rem;
         margin-bottom: 1rem;
         line-height: 1.3;
+        color: white;
       }
 
-      .article-meta {
+      .meta {
         color: var(--text-muted);
         font-size: 0.9rem;
-        margin-bottom: 2rem;
+        margin-bottom: 1rem;
         display: flex;
-        gap: 1rem;
+        gap: 0.5rem;
       }
 
-      .text-content {
+      .content {
         white-space: pre-wrap;
       }
 
@@ -119,111 +129,167 @@ export class ReaderView extends LitElement {
   ];
 
   _handleBack() {
-    this._toggleSpeech(true); // Stop speech if running
+    this._stopPlayback(true);
     this.dispatchEvent(new CustomEvent('close-reader', {
       bubbles: true,
       composed: true
     }));
   }
 
+  // A 1-second silent WAV file to keep the media session alive
+  static SILENT_AUDIO_URL = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
+  firstUpdated() {
+    this.silentAudio = this.shadowRoot.getElementById('silent-audio');
+  }
+
+  _splitIntoChunks(text) {
+    if (!text) return [];
+    // Split by sentences, but keep the delimiter
+    const sentences = text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [text];
+    return sentences.map(s => s.trim()).filter(s => s.length > 0);
+  }
+
   async _toggleSpeech(forceStop = false) {
-    if (this.isListening || forceStop) {
-      // Stop playback
-      window.speechSynthesis.cancel();
-      this.isListening = false;
-
-      // Release wake lock
-      if (this.wakeLock) {
-        try {
-          await this.wakeLock.release();
-          this.wakeLock = null;
-          console.log('Wake lock released');
-        } catch (err) {
-          console.error('Failed to release wake lock:', err);
-        }
-      }
-
-      // Update media session
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'paused';
-      }
+    if ((this.isListening && !this.isPaused) || forceStop) {
+      this._stopPlayback(forceStop);
+    } else if (this.isPaused && !forceStop) {
+      this._resumePlayback();
     } else {
-      // Start playback
-      this.utterance = new SpeechSynthesisUtterance(this.article.content || this.article.title);
+      this._startPlayback();
+    }
+  }
 
-      // Request wake lock to keep screen on during playback
-      if ('wakeLock' in navigator) {
-        try {
-          this.wakeLock = await navigator.wakeLock.request('screen');
-          console.log('Wake lock acquired');
+  async _startPlayback() {
+    this.chunks = this._splitIntoChunks(this.article.content || this.article.title);
+    this.currentChunkIndex = 0;
+    this.isListening = true;
+    this.isPaused = false;
 
-          // Re-acquire wake lock if it's released (e.g., tab becomes inactive)
-          this.wakeLock.addEventListener('release', () => {
-            console.log('Wake lock was released');
-          });
-        } catch (err) {
-          console.error('Failed to acquire wake lock:', err);
-        }
+    // 1. Play silent audio loop
+    if (this.silentAudio) {
+      try {
+        await this.silentAudio.play();
+      } catch (err) {
+        console.error('Failed to play silent audio:', err);
       }
+    }
 
-      // Setup Media Session Metadata for notification controls
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: this.article.title,
-          artist: 'Read Later',
-          album: 'Article',
-          artwork: [
-            { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-            { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' }
-          ]
-        });
-
-        navigator.mediaSession.playbackState = 'playing';
-
-        // Handle media control actions
-        navigator.mediaSession.setActionHandler('play', () => {
-          if (!this.isListening) {
-            this._toggleSpeech();
-          }
-        });
-
-        navigator.mediaSession.setActionHandler('pause', () => {
-          if (this.isListening) {
-            this._toggleSpeech();
-          }
-        });
-
-        navigator.mediaSession.setActionHandler('stop', () => {
-          this._toggleSpeech(true);
-        });
+    // 2. Wake Lock
+    if ('wakeLock' in navigator) {
+      try {
+        this.wakeLock = await navigator.wakeLock.request('screen');
+      } catch (err) {
+        console.error('Wake lock error:', err);
       }
+    }
 
-      // Handle speech end
-      this.utterance.onend = async () => {
-        this.isListening = false;
-        this.requestUpdate();
+    // 3. Media Session
+    this._setupMediaSession();
 
-        // Release wake lock when done
-        if (this.wakeLock) {
-          try {
-            await this.wakeLock.release();
-            this.wakeLock = null;
-          } catch (err) {
-            console.error('Failed to release wake lock:', err);
-          }
-        }
+    // 4. Start first chunk
+    this._speakChunk();
+    this.requestUpdate();
+  }
 
-        if ('mediaSession' in navigator) {
-          navigator.mediaSession.playbackState = 'none';
-        }
-      };
+  _resumePlayback() {
+    this.isPaused = false;
+    if (this.silentAudio) this.silentAudio.play();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    this._speakChunk();
+    this.requestUpdate();
+  }
 
-      // Start speaking
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(this.utterance);
-      this.isListening = true;
+  _stopPlayback(reset = false) {
+    window.speechSynthesis.cancel();
+    if (this.silentAudio) {
+      this.silentAudio.pause();
+      if (reset) this.silentAudio.currentTime = 0;
+    }
+
+    if (reset) {
+      this.isListening = false;
+      this.isPaused = false;
+      this.currentChunkIndex = 0;
+      this._releaseWakeLock();
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
+    } else {
+      this.isPaused = true;
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     }
     this.requestUpdate();
+  }
+
+  async _releaseWakeLock() {
+    if (this.wakeLock) {
+      try {
+        await this.wakeLock.release();
+        this.wakeLock = null;
+      } catch (err) {
+        console.error('Failed to release wake lock:', err);
+      }
+    }
+  }
+
+  _setupMediaSession() {
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: this.article.title,
+        artist: 'Read Later',
+        album: 'Article Reader',
+        artwork: [
+          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }
+        ]
+      });
+
+      navigator.mediaSession.playbackState = 'playing';
+
+      navigator.mediaSession.setActionHandler('play', () => this._resumePlayback());
+      navigator.mediaSession.setActionHandler('pause', () => this._stopPlayback(false));
+      navigator.mediaSession.setActionHandler('stop', () => this._stopPlayback(true));
+
+      // Optional: Add skip forward/backward to chunks
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        this.currentChunkIndex = Math.max(0, this.currentChunkIndex - 1);
+        this._speakChunk();
+      });
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        this.currentChunkIndex = Math.min(this.chunks.length - 1, this.currentChunkIndex + 1);
+        this._speakChunk();
+      });
+    }
+  }
+
+  _speakChunk() {
+    window.speechSynthesis.cancel();
+
+    if (this.currentChunkIndex >= this.chunks.length) {
+      this._stopPlayback(true);
+      return;
+    }
+
+    const text = this.chunks[this.currentChunkIndex];
+    this.utterance = new SpeechSynthesisUtterance(text);
+
+    // Use a slightly faster rate as default for long articles
+    this.utterance.rate = 1.0;
+
+    this.utterance.onend = () => {
+      if (this.isListening && !this.isPaused) {
+        this.currentChunkIndex++;
+        this._speakChunk();
+      }
+    };
+
+    this.utterance.onerror = (event) => {
+      console.error('SpeechSynthesis error:', event);
+      if (event.error !== 'interrupted') {
+        this._stopPlayback(true);
+      }
+    };
+
+    window.speechSynthesis.speak(this.utterance);
   }
 
   disconnectedCallback() {
@@ -271,6 +337,20 @@ export class ReaderView extends LitElement {
 
         <div class="controls">
           ${this.isListening ? html`
+            <button class="audio-btn" @click=${() => this._toggleSpeech()}>
+              ${this.isPaused ? html`
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                Resume
+              ` : html`
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="6" y="4" width="4" height="16"></rect>
+                  <rect x="14" y="4" width="4" height="16"></rect>
+                </svg>
+                Pause
+              `}
+            </button>
             <button class="audio-btn stop" @click=${() => this._stopListening()}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="6" y="6" width="12" height="12"></rect>
@@ -278,7 +358,7 @@ export class ReaderView extends LitElement {
               Stop
             </button>
           ` : html`
-            <button class="audio-btn listen" @click=${() => this._startListening()}>
+            <button class="audio-btn" @click=${() => this._startListening()}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
                 <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
@@ -300,6 +380,9 @@ export class ReaderView extends LitElement {
         <div class="content">
           ${this.article.content || 'No content found for this article.'}
         </div>
+        
+        <!-- Hidden audio element to keep media session active on mobile -->
+        <audio id="silent-audio" loop src="${ReaderView.SILENT_AUDIO_URL}" style="display: none;"></audio>
       </article>
     `;
   }
