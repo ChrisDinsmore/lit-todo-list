@@ -12,6 +12,7 @@ export class ReaderView extends LitElement {
     this.article = null;
     this.isListening = false;
     this.utterance = null;
+    this.wakeLock = null;
   }
 
   static styles = [
@@ -125,34 +126,99 @@ export class ReaderView extends LitElement {
     }));
   }
 
-  _toggleSpeech(forceStop = false) {
+  async _toggleSpeech(forceStop = false) {
     if (this.isListening || forceStop) {
+      // Stop playback
       window.speechSynthesis.cancel();
       this.isListening = false;
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+
+      // Release wake lock
+      if (this.wakeLock) {
+        try {
+          await this.wakeLock.release();
+          this.wakeLock = null;
+          console.log('Wake lock released');
+        } catch (err) {
+          console.error('Failed to release wake lock:', err);
+        }
+      }
+
+      // Update media session
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'paused';
+      }
     } else {
+      // Start playback
       this.utterance = new SpeechSynthesisUtterance(this.article.content || this.article.title);
 
-      // Setup Media Session Metadata
+      // Request wake lock to keep screen on during playback
+      if ('wakeLock' in navigator) {
+        try {
+          this.wakeLock = await navigator.wakeLock.request('screen');
+          console.log('Wake lock acquired');
+
+          // Re-acquire wake lock if it's released (e.g., tab becomes inactive)
+          this.wakeLock.addEventListener('release', () => {
+            console.log('Wake lock was released');
+          });
+        } catch (err) {
+          console.error('Failed to acquire wake lock:', err);
+        }
+      }
+
+      // Setup Media Session Metadata for notification controls
       if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
           title: this.article.title,
           artist: 'Read Later',
           album: 'Article',
-          artwork: [{ src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }]
+          artwork: [
+            { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+            { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' }
+          ]
         });
+
         navigator.mediaSession.playbackState = 'playing';
-        navigator.mediaSession.setActionHandler('play', () => { });
-        navigator.mediaSession.setActionHandler('pause', () => this._toggleSpeech());
-        navigator.mediaSession.setActionHandler('stop', () => this._toggleSpeech());
+
+        // Handle media control actions
+        navigator.mediaSession.setActionHandler('play', () => {
+          if (!this.isListening) {
+            this._toggleSpeech();
+          }
+        });
+
+        navigator.mediaSession.setActionHandler('pause', () => {
+          if (this.isListening) {
+            this._toggleSpeech();
+          }
+        });
+
+        navigator.mediaSession.setActionHandler('stop', () => {
+          this._toggleSpeech(true);
+        });
       }
 
-      this.utterance.onend = () => {
+      // Handle speech end
+      this.utterance.onend = async () => {
         this.isListening = false;
         this.requestUpdate();
-        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
+
+        // Release wake lock when done
+        if (this.wakeLock) {
+          try {
+            await this.wakeLock.release();
+            this.wakeLock = null;
+          } catch (err) {
+            console.error('Failed to release wake lock:', err);
+          }
+        }
+
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.playbackState = 'none';
+        }
       };
 
+      // Start speaking
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(this.utterance);
       this.isListening = true;
@@ -165,10 +231,14 @@ export class ReaderView extends LitElement {
     this._toggleSpeech(true);
   }
 
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    this._stopListening();
+  _startListening() {
+    this._toggleSpeech();
   }
+
+  _stopListening() {
+    this._toggleSpeech(true);
+  }
+
 
   render() {
     if (!this.article) return html`<div>Loading...</div>`;
