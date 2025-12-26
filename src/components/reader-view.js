@@ -12,6 +12,10 @@ export class ReaderView extends LitElement {
     this.article = null;
     this.isListening = false;
     this.utterance = null;
+
+    // Background audio hack
+    this.audioHack = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABBGZGF0AgAAAA==');
+    this.audioHack.loop = true;
   }
 
   static styles = [
@@ -155,12 +159,14 @@ export class ReaderView extends LitElement {
     this.utterance = new SpeechSynthesisUtterance(this.article.content || this.article.title);
     this.utterance.onend = () => {
       this.isListening = false;
+      this.audioHack.pause(); // Pause audio hack when speech ends
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'none';
       }
     };
 
     window.speechSynthesis.cancel(); // Clear any pending speech
+    this.audioHack.play().catch(e => console.log('Audio hack failed to play', e)); // Play audio hack when speech starts
     window.speechSynthesis.speak(this.utterance);
 
     if ('mediaSession' in navigator) {

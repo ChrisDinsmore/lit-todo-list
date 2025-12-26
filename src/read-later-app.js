@@ -55,6 +55,56 @@ export class ReadLaterApp extends LitElement {
       this._installPrompt = e;
       this.requestUpdate();
     });
+
+    // Reconnect on tab focus (mobile background tab freeze fix)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        console.log('App visible, checking connection...');
+        if (!this.provider || !this.provider.connected) {
+          console.log('Forcing reconnect...');
+          this._connectProvider();
+        }
+      }
+    });
+
+    // Handle incoming shared links (PWA Share Target)
+    this._handleShareTarget();
+  }
+
+  async _handleShareTarget() {
+    const params = new URLSearchParams(window.location.search);
+    const sharedTitle = params.get('title');
+    const sharedText = params.get('text');
+    const sharedUrl = params.get('url');
+
+    console.log('Checking for shared content:', { sharedTitle, sharedText, sharedUrl });
+
+    // Try to find a URL in any of the fields
+    let urlToSave = sharedUrl;
+
+    if (!urlToSave && sharedText) {
+      const urlMatch = sharedText.match(/(https?:\/\/[^\s]+)/);
+      if (urlMatch) {
+        urlToSave = urlMatch[0];
+      }
+    }
+
+    if (!urlToSave && sharedTitle) {
+      const urlMatch = sharedTitle.match(/(https?:\/\/[^\s]+)/);
+      if (urlMatch) {
+        urlToSave = urlMatch[0];
+      }
+    }
+
+    if (urlToSave) {
+      console.log('Found shared URL:', urlToSave);
+      // Wait a bit for Yjs to initialize
+      await new Promise(r => setTimeout(r, 1000));
+      this._addLink({ detail: { url: urlToSave } });
+
+      // Clean command line
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }
 
   _connectProvider() {
@@ -66,8 +116,11 @@ export class ReadLaterApp extends LitElement {
     const roomName = 'read-later-v1-' + this._roomId;
     console.log('Connecting to room:', roomName);
 
+    // Custom Cloudflare Worker WebSocket Relay
+    const customRelayUrl = `wss://websocket-relay.c-dinsmore.workers.dev/?room=${this._roomId}`;
+
     const signalingServers = [
-      'wss://demos.yjs.dev/ws'
+      customRelayUrl
     ];
 
     this.provider = new WebrtcProvider(roomName, this.ydoc, {
@@ -365,11 +418,14 @@ export class ReadLaterApp extends LitElement {
         doc.querySelector('meta[property="og:description"]')?.content ||
         'No summary available.';
 
-      // Basic content extraction (getting the largest text block)
-      const paragraphs = Array.from(doc.querySelectorAll('p, article')).map(p => p.innerText);
-      const content = paragraphs.join('\n\n').substring(0, 5000) || 'Could not parse article content.';
+      // Basic content extraction (filtering out small navigational text)
+      const paragraphs = Array.from(doc.querySelectorAll('p, article, h1, h2, h3, h4, h5, h6'))
+        .filter(el => el.innerText.length > 50) // Filter out menu items/noise
+        .map(p => p.innerText);
 
-      return { title, summary: description.substring(0, 160) + '...', content };
+      const content = paragraphs.join('\n\n').substring(0, 100000) || 'Could not parse article content.';
+
+      return { title, summary: description.substring(0, 300) + '...', content };
     } catch (e) {
       console.error('Failed to fetch metadata:', e);
       return { title: url, summary: 'Offline or failed to fetch info.', content: '' };
@@ -521,7 +577,7 @@ export class ReadLaterApp extends LitElement {
           </div>
         ` : ''}
 
-        <h1>Read Later <span class="version-badge">v17</span></h1>
+        <h1>Read Later <span class="version-badge">v20</span></h1>
         
         <link-input @save-link=${(e) => this._addLink(e)}></link-input>
 
