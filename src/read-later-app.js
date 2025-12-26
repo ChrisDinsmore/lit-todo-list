@@ -257,6 +257,21 @@ export class ReadLaterApp extends LitElement {
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+    }
+
+    .version-badge {
+      font-size: 1rem;
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--primary-color);
+      padding: 0.25rem 0.75rem;
+      border-radius: 12px;
+      -webkit-text-fill-color: var(--primary-color);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      font-weight: 600;
     }
 
     .filters {
@@ -506,7 +521,7 @@ export class ReadLaterApp extends LitElement {
           </div>
         ` : ''}
 
-        <h1>Read Later</h1>
+        <h1>Read Later <span class="version-badge">v17</span></h1>
         
         <link-input @save-link=${(e) => this._addLink(e)}></link-input>
 

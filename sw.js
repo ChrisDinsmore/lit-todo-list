@@ -1,4 +1,4 @@
-const CACHE_NAME = 'read-later-v15';
+const CACHE_NAME = 'read-later-v17';
 const ASSETS = [
     './',
     './index.html',
