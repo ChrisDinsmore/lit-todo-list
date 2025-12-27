@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import * as Y from 'yjs';
-import { WebrtcProvider } from 'y-webrtc';
+import { WebsocketProvider } from 'y-websocket';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { sharedStyles } from './app-styles.js';
 import './components/link-item.js';
@@ -114,49 +114,25 @@ export class ReadLaterApp extends LitElement {
       this.provider.destroy();
     }
 
-    // Prefix to ensure namespace unique to this app even if user enters a simple string
-    const roomName = 'read-later-v1-' + this._roomId;
+    const roomName = this._roomId;
     console.log('Connecting to room:', roomName);
 
-    // Custom Cloudflare Worker WebSocket Relay
-    const customRelayUrl = `wss://websocket-relay.c-dinsmore.workers.dev/?room=${this._roomId}`;
+    const relayWsUrl = `wss://websocket-relay.c-dinsmore.workers.dev`;
 
-    const signalingServers = [
-      customRelayUrl
-    ];
-
-    this.provider = new WebrtcProvider(roomName, this.ydoc, {
-      signaling: signalingServers,
-      password: roomName // Optional: adds a layer of negotiation security
-    });
-
-    // Check status immediately and after a short delay
-    const checkStatus = () => {
-      this._synced = this.provider.connected;
-      this.requestUpdate();
-    };
-
-    setTimeout(checkStatus, 500);
-    setTimeout(checkStatus, 2000);
+    this.provider = new WebsocketProvider(relayWsUrl, roomName, this.ydoc);
 
     this.provider.on('status', ({ status }) => {
       console.log('Sync status changed:', status);
-      // y-webrtc often emits status as an object where status.connected might be a thing,
-      // or simply strings like 'connected' or 'disconnected'.
-      this._synced = status === 'connected' || this.provider.connected;
+      this._synced = status === 'connected';
       this.requestUpdate();
     });
+  }
 
-    // Also listen to peer events to confirm activity
-    this.provider.on('peers', ({ webrtcPeers }) => {
-      this._peerCount = webrtcPeers.length;
-      console.log('Active peers:', this._peerCount);
-      // Even if not "connected" in signaling terms, we might have peers
-      if (this._peerCount > 0) {
-        this._synced = true;
-      }
-      this.requestUpdate();
-    });
+  // Helper for cleanup
+  _disconnectProvider() {
+    if (this.provider) {
+      this.provider.destroy();
+    }
   }
 
   async _installPwa() {
@@ -627,7 +603,7 @@ export class ReadLaterApp extends LitElement {
           ` : ''}
           <div class="sync-indicator">
             <div class="sync-dot" style="background: ${this._synced ? '#10b981' : '#f59e0b'}; box-shadow: 0 0 10px ${this._synced ? '#10b981' : '#f59e0b'};"></div>
-            <span>${this._synced ? 'P2P Live' : 'Connecting...'} ${this._peerCount > 0 ? html`(${this._peerCount} peer${this._peerCount === 1 ? '' : 's'})` : ''}</span>
+            <span>${this._synced ? 'Online Sync' : 'Connecting...'}</span>
           </div>
           <button class="settings-btn" @click=${() => this._showSettings = !this._showSettings} title="Sync Settings">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -664,7 +640,7 @@ export class ReadLaterApp extends LitElement {
           </div>
         ` : ''}
 
-        <h1>Read Later <span class="version-badge">v34</span></h1>
+        <h1>Read Later <span class="version-badge">v38</span></h1>
         
         <link-input @save-link=${(e) => this._addLink(e)}></link-input>
 

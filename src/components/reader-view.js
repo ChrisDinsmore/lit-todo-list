@@ -1,227 +1,14 @@
 import { LitElement, html, css } from 'lit';
 import { sharedStyles } from '../app-styles.js';
-import { TTSEngine } from '../lib/tts-engine.js';
 
 export class ReaderView extends LitElement {
   static properties = {
-    article: { type: Object },
-    isListening: { type: Boolean, state: true },
-    isPaused: { type: Boolean, state: true },
-    isSynthesizing: { type: Boolean, state: true }
+    article: { type: Object }
   };
 
   constructor() {
     super();
     this.article = null;
-    this.isListening = false;
-    this.isPaused = false;
-    this.isSynthesizing = false;
-    this.wakeLock = null;
-    this.chunks = [];
-    this.currentChunkIndex = 0;
-    this.audioElement = null;
-    this.tts = new TTSEngine();
-    this.audioUrls = new Map(); // Store blob URLs
-  }
-
-  firstUpdated() {
-    this.audioElement = this.shadowRoot.getElementById('main-audio');
-
-    // Add event listeners for audio element
-    this.audioElement.onended = () => this._onAudioEnded();
-    this.audioElement.onerror = () => {
-      const err = this.audioElement.error;
-      console.error('Audio element error:', {
-        code: err?.code,
-        message: err?.message,
-        src: this.audioElement.src
-      });
-    };
-  }
-
-  _splitIntoChunks(text) {
-    if (!text) return [];
-    // Split by sentences
-    const sentences = text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [text];
-    return sentences.map(s => s.trim()).filter(s => s.length > 0);
-  }
-
-  async _toggleSpeech(forceStop = false) {
-    if (forceStop) {
-      this._stopPlayback(true);
-      return;
-    }
-
-    if (this.isListening && !this.isPaused) {
-      this._pausePlayback();
-    } else if (this.isPaused) {
-      this._resumePlayback();
-    } else {
-      this._startPlayback();
-    }
-  }
-
-  async _startPlayback() {
-    this.chunks = this._splitIntoChunks(this.article.content || this.article.title);
-    this.currentChunkIndex = 0;
-    this.isListening = true;
-    this.isPaused = false;
-
-    // Wake Lock
-    if ('wakeLock' in navigator) {
-      try {
-        this.wakeLock = await navigator.wakeLock.request('screen');
-      } catch (err) {
-        console.error('Wake lock error:', err);
-      }
-    }
-
-    this._setupMediaSession();
-    this._playNextChunk();
-    this.requestUpdate();
-  }
-
-  async _playNextChunk() {
-    if (this.currentChunkIndex >= this.chunks.length) {
-      this._stopPlayback(true);
-      return;
-    }
-
-    this.isSynthesizing = true;
-    this.requestUpdate();
-
-    try {
-      const text = this.chunks[this.currentChunkIndex];
-      let audioUrl = this.audioUrls.get(this.currentChunkIndex);
-
-      if (!audioUrl) {
-        const { buffer } = await this.tts.synthesize(text);
-        const blob = this.tts.createWavBlob(buffer);
-        audioUrl = URL.createObjectURL(blob);
-        this.audioUrls.set(this.currentChunkIndex, audioUrl);
-      }
-
-      this.isSynthesizing = false;
-      this.audioElement.src = audioUrl;
-      await this.audioElement.play();
-
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'playing';
-      }
-
-      // Pre-synthesize next chunk
-      this._preSynthesizeNext();
-
-    } catch (err) {
-      console.error('Playback error:', err);
-      this._stopPlayback(true);
-    }
-
-    this.requestUpdate();
-  }
-
-  async _preSynthesizeNext() {
-    const nextIndex = this.currentChunkIndex + 1;
-    if (nextIndex < this.chunks.length && !this.audioUrls.has(nextIndex)) {
-      try {
-        const { buffer } = await this.tts.synthesize(this.chunks[nextIndex]);
-        const blob = this.tts.createWavBlob(buffer);
-        this.audioUrls.set(nextIndex, URL.createObjectURL(blob));
-      } catch (e) {
-        console.warn('Pre-synthesis failed', e);
-      }
-    }
-  }
-
-  _onAudioEnded() {
-    if (this.isListening && !this.isPaused) {
-      this.currentChunkIndex++;
-      this._playNextChunk();
-    }
-  }
-
-  _pausePlayback() {
-    this.isPaused = true;
-    this.audioElement.pause();
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
-    this.requestUpdate();
-  }
-
-  _resumePlayback() {
-    this.isPaused = false;
-    this.audioElement.play();
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-    this.requestUpdate();
-  }
-
-  _stopPlayback(reset = false) {
-    this.audioElement.pause();
-    this.audioElement.src = '';
-
-    if (reset) {
-      this.isListening = false;
-      this.isPaused = false;
-      this.currentChunkIndex = 0;
-      this._releaseWakeLock();
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
-
-      // Clear blobs
-      this.audioUrls.forEach(url => URL.revokeObjectURL(url));
-      this.audioUrls.clear();
-    } else {
-      this.isPaused = true;
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
-    }
-    this.requestUpdate();
-  }
-
-  async _releaseWakeLock() {
-    if (this.wakeLock) {
-      try {
-        await this.wakeLock.release();
-        this.wakeLock = null;
-      } catch (err) { }
-    }
-  }
-
-  _setupMediaSession() {
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: this.article.title,
-        artist: 'Read Later',
-        album: 'Offline Reader',
-        artwork: [
-          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }
-        ]
-      });
-
-      navigator.mediaSession.setActionHandler('play', () => this._resumePlayback());
-      navigator.mediaSession.setActionHandler('pause', () => this._pausePlayback());
-      navigator.mediaSession.setActionHandler('stop', () => this._stopPlayback(true));
-
-      navigator.mediaSession.setActionHandler('previoustrack', () => {
-        this.currentChunkIndex = Math.max(0, this.currentChunkIndex - 1);
-        this._playNextChunk();
-      });
-      navigator.mediaSession.setActionHandler('nexttrack', () => {
-        this.currentChunkIndex = Math.min(this.chunks.length - 1, this.currentChunkIndex + 1);
-        this._playNextChunk();
-      });
-    }
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    this._stopPlayback(true);
-  }
-
-  _startListening() {
-    this._toggleSpeech();
-  }
-
-  _stopListening() {
-    this._stopPlayback(true);
   }
 
   static styles = [
@@ -260,41 +47,6 @@ export class ReaderView extends LitElement {
       .back-btn:hover {
         background: rgba(255, 255, 255, 0.05);
         color: white;
-      }
-
-      .controls {
-        display: flex;
-        gap: 0.5rem;
-      }
-
-      .audio-btn {
-        background: rgba(255, 255, 255, 0.1);
-        border: none;
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.5rem;
-        cursor: pointer;
-        transition: var(--transition-fast);
-        font-weight: 500;
-      }
-
-      .audio-btn:hover {
-        background: var(--primary-color);
-        transform: translateY(-2px);
-      }
-
-      .audio-btn.stop {
-        background: rgba(239, 68, 68, 0.2);
-        color: #ef4444;
-      }
-
-      .audio-btn.synthesizing {
-        opacity: 0.7;
-        cursor: wait;
       }
 
       .article-container {
@@ -337,7 +89,6 @@ export class ReaderView extends LitElement {
   ];
 
   _handleBack() {
-    this._stopPlayback(true);
     this.dispatchEvent(new CustomEvent('close-reader', {
       bubbles: true,
       composed: true
@@ -372,17 +123,6 @@ export class ReaderView extends LitElement {
             Source
           </a>
         </div>
-
-        <div class="controls">
-          ${this.isListening ? html`
-            <button class="audio-btn ${this.isSynthesizing ? 'synthesizing' : ''}" @click=${() => this._toggleSpeech()} ?disabled=${this.isSynthesizing}>
-              ${this.isSynthesizing ? html`...` : (this.isPaused ? html`Resume` : html`Pause`)}
-            </button>
-            <button class="audio-btn stop" @click=${() => this._stopListening()}>Stop</button>
-          ` : html`
-            <button class="audio-btn" @click=${() => this._startListening()}>Listen</button>
-          `}
-        </div>
       </div>
 
       <article class="article-container">
@@ -390,14 +130,11 @@ export class ReaderView extends LitElement {
           <span>${new URL(this.article.url).hostname}</span>
           <span>•</span>
           <span>${date}</span>
-          ${this.isSynthesizing ? html`<span class="status-pill">Synthesizing...</span>` : ''}
         </div>
         <h1>${this.article.title || 'Untitled Article'}</h1>
         <div class="content">
           ${this.article.content || 'No content found for this article.'}
         </div>
-        
-        <audio id="main-audio" style="display: none;"></audio>
       </article>
     `;
   }
